@@ -37,9 +37,15 @@ namespace TalesTensor.Map
         const int MarkerOpenBoost = 7; // 19/20/21 -> 26/27/28, above CardSortingOrder
         // Scene entered when an AR Experience pin is accepted; must be in Build Settings.
         const string ArSceneName = "ARScene";
-        // Video played inside the AR portal when a Portal pin is entered.
-        const string PortalVideoUrl =
-            "https://pub-7022d8f9372c4ee1a330a5ba10fce535.r2.dev/videos/0553d3ce-82b4-4146-b96e-dbbe0f9d382e/portal_0553d3ce-82b4-4146-b96e-dbbe0f9d382e_final.mp4";
+        // Video played inside the AR portal when a Portal pin is entered without a live
+        // Time Portal render. Shipped inside the build via StreamingAssets, so the AR
+        // portal has something to play offline; the path is resolved at runtime because
+        // StreamingAssets URLs differ per platform (jar:file on Android, filesystem
+        // path elsewhere).
+        const string OfflinePortalVideoRelativePath = "Portals/StaraZeleznicka.mp4";
+        static string OfflinePortalVideoUrl =>
+            System.IO.Path.Combine(Application.streamingAssetsPath, OfflinePortalVideoRelativePath)
+                .Replace('\\', '/');
         // A claimed timed event grants, at random, this much energy or an ice-cream voucher.
         const int TimedEnergyReward = 15;
 
@@ -502,7 +508,7 @@ namespace TalesTensor.Map
                 // demo reconstruction video.
                 string portalVideo = _def.portal != null && _def.portal.HasPlayableVideo
                     ? _def.portal.video.url
-                    : PortalVideoUrl;
+                    : OfflinePortalVideoUrl;
                 ArSession.BeginPortal(portalVideo, _def.portal);
                 Claimed?.Invoke(this);
                 SceneTransition.Load(ArSceneName);
