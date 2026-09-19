@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "26716171742",
+    "project_id": "talestensor",
+    "storage_bucket": "talestensor.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:26716171742:android:6725214824f427311ac14f",
+        "android_client_info": {
+          "package_name": "com.talestensor.talestensor"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "26716171742-mtneo2qd83g6noporqp5bvf5ogpjbips.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.talestensor.talestensor",
+            "certificate_hash": "7c0fe94e0ae5e5c931f34808dac847e872640c12"
+          }
+        },
+        {
+          "client_id": "26716171742-8nn2cifovpbalk4jlgtb1cv7mhveedbr.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDCLcyr_b7k9x700MJ1TGlE_zz4VtuKxFM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "26716171742-8nn2cifovpbalk4jlgtb1cv7mhveedbr.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

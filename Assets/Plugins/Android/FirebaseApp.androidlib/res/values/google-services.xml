@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@string/gcm_defaultSenderId,@string/google_storage_bucket,@string/project_id,@string/google_api_key,@string/google_crash_reporting_api_key,@string/google_app_id,@string/default_android_client_id,@string/default_web_client_id">
+  <string name="gcm_defaultSenderId" translatable="false">26716171742</string>
+  <string name="google_storage_bucket" translatable="false">talestensor.firebasestorage.app</string>
+  <string name="project_id" translatable="false">talestensor</string>
+  <string name="google_api_key" translatable="false">AIzaSyDCLcyr_b7k9x700MJ1TGlE_zz4VtuKxFM</string>
+  <string name="google_crash_reporting_api_key" translatable="false">AIzaSyDCLcyr_b7k9x700MJ1TGlE_zz4VtuKxFM</string>
+  <string name="google_app_id" translatable="false">1:26716171742:android:6725214824f427311ac14f</string>
+  <string name="default_android_client_id" translatable="false">26716171742-mtneo2qd83g6noporqp5bvf5ogpjbips.apps.googleusercontent.com</string>
+  <string name="default_web_client_id" translatable="false">26716171742-8nn2cifovpbalk4jlgtb1cv7mhveedbr.apps.googleusercontent.com</string>
+</resources>

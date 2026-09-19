@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Native dependencies for the Google Sign-In plugin, resolved by the External
+  Dependency Manager (Assets/ExternalDependencyManager) that ships with Firebase.
+
+  Only the iOS pod is pinned. Upstream shipped ">= 4.0.2" there, which today
+  resolves to a release whose native API the plugin's own 2018 glue code
+  (Assets/Plugins/iOS/GoogleSignIn/*.mm) cannot compile against.
+
+  Android is deliberately NOT pinned. "16+" is a Gradle prefix match — it selects
+  the highest version *starting with* "16" (i.e. 16.0.1), not ">= 16". Pinning it
+  to 21.3.0 on the assumption that it meant the latter silently jumped
+  play-services-auth five majors past what google-signin-support-1.0.4.srcaar was
+  built against, and sign-in failed on device with DeveloperError (code 10) even
+  though package name, SHA-1 and web client ID were all correct.
+  See FIREBASE_SETUP.md.
+-->
+<dependencies>
+  <androidPackages>
+    <!-- Prefix match: highest 16.x. The generation the 2018 plugin targets. -->
+    <androidPackage spec="com.google.android.gms:play-services-auth:16+">
+      <androidSdkPackageIds>
+        <androidSdkPackageId>extra-google-m2repository</androidSdkPackageId>
+      </androidSdkPackageIds>
+    </androidPackage>
+  </androidPackages>
+
+  <iosPods>
+    <!-- Must stay on 5.x: GoogleSignIn 6.0 removed the GIDSignIn delegate API
+         that GoogleSignIn.mm / GoogleSignInAppController.mm are written against. -->
+    <iosPod name="GoogleSignIn" version="~> 5.0" bitcodeEnabled="false"
+        minTargetSdk="9.0">
+    </iosPod>
+  </iosPods>
+</dependencies>

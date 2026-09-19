@@ -1,0 +1,10 @@
+{
+  "name": "com.yasirkula.speechtotext",
+  "displayName": "Speech to Text",
+  "version": "1.1.1",
+  "documentationUrl": "https://github.com/yasirkula/UnitySpeechToText",
+  "changelogUrl": "https://github.com/yasirkula/UnitySpeechToText/releases",
+  "licensesUrl": "https://github.com/yasirkula/UnitySpeechToText/blob/master/LICENSE.txt",
+  "description": "This plugin helps you convert speech to text on Android (all versions) and iOS 10+.",
+  "_fingerprint": "511736fbefd300c0ef169689f0851e99357976c3"
+}
