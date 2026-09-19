@@ -163,11 +163,31 @@ namespace TalesTensor.Map
                 _save = new MapPinSave
                 {
                     generated = true,
-                    pins = Generate(_minMeters, _maxMeters, guaranteeNearPin: true),
+                    pins = GenerateOfflinePortals(),
                 };
                 MapPinStore.Save(_save);
                 SpawnAll(_save.pins, IntroHideSeconds);
             }
+        }
+
+        /// <summary>The fixed offline pin set: two Portal pins at real Skopje landmarks
+        /// (old train station and the old Bristol hotel), so the offline demo shows the
+        /// exact story stops instead of random scatter around the player.</summary>
+        List<PinDefinition> GenerateOfflinePortals()
+        {
+            return new List<PinDefinition>
+            {
+                new PinDefinition(
+                    id: "portal_old_train_station",
+                    type: PinType.Portal,
+                    location: new LatLon(41.991106, 21.429048),
+                    energyCost: PortalEnergyCost),
+                new PinDefinition(
+                    id: "portal_old_bristol_hotel",
+                    type: PinType.Portal,
+                    location: new LatLon(41.991910, 21.429444),
+                    energyCost: PortalEnergyCost),
+            };
         }
 
         /// <summary>Fetch live portal-ready quest scenes from the Quest Engine and build the
@@ -461,7 +481,9 @@ namespace TalesTensor.Map
         /// replacements sit further out than the original spread.</summary>
         void Refill()
         {
-            _save.pins = Generate(_refillMinMeters, _refillMaxMeters, guaranteeNearPin: false);
+            _save.pins = QuestEngineConfig.IsConfigured
+                ? Generate(_refillMinMeters, _refillMaxMeters, guaranteeNearPin: false)
+                : GenerateOfflinePortals();
             MapPinStore.Save(_save);
             // A short lead-in for the bounce, without the long first-load settle delay.
             SpawnAll(_save.pins, RefillIntroLead);

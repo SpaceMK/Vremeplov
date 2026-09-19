@@ -102,3 +102,9 @@ crashlytics-build.properties
 # QuestEngineSecrets.json and fill it in. (The .meta is ignored too so Unity can mint it.)
 /[Aa]ssets/[Rr]esources/QuestEngineSecrets.json
 /[Aa]ssets/[Rr]esources/QuestEngineSecrets.json.meta
+
+# Mapbox access token, loaded by MapController at boot when the Inspector field is
+# blank. Same rules as the Quest Engine key — ships inside builds via Resources but
+# never committed. (The .meta is ignored too so Unity can mint it.)
+/[Aa]ssets/[Rr]esources/MapboxSecrets.json
+/[Aa]ssets/[Rr]esources/MapboxSecrets.json.meta

@@ -160,6 +160,12 @@ namespace TalesTensor.Map
 
         void Awake()
         {
+            // Fall back to a gitignored Resources/MapboxSecrets.json when the Inspector
+            // field is blank, so builds and dev machines can be provisioned without
+            // committing the token to the scene.
+            if (string.IsNullOrWhiteSpace(mapboxToken))
+                mapboxToken = LoadMapboxTokenFromResources();
+
             _gps = GetComponent<GpsLocationProvider>();
             if (_gps == null) _gps = gameObject.AddComponent<GpsLocationProvider>();
 
@@ -332,6 +338,29 @@ namespace TalesTensor.Map
         /// <summary>Metres per Unity unit at the current map origin — handy for sizing real-world content.</summary>
         public double MetersPerUnit =>
             WebMercator.MetersPerTile(CurrentLocation.Latitude, Zoom) / UnitsPerTile;
+
+        /// <summary>Shape of <c>Assets/Resources/MapboxSecrets.json</c>. Optional file;
+        /// missing or empty just means "no token here", the same as leaving it out.</summary>
+        [System.Serializable]
+        class MapboxSecretsFile { public string mapboxToken; }
+
+        /// <summary>Load the Mapbox access token from the gitignored Resources file, if
+        /// present. Never throws — a missing or malformed file returns empty.</summary>
+        static string LoadMapboxTokenFromResources()
+        {
+            try
+            {
+                var text = Resources.Load<TextAsset>("MapboxSecrets");
+                if (text == null || string.IsNullOrWhiteSpace(text.text)) return "";
+                var parsed = JsonUtility.FromJson<MapboxSecretsFile>(text.text);
+                return (parsed?.mapboxToken ?? "").Trim();
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[Map] could not read Resources/MapboxSecrets.json: {e.Message}");
+                return "";
+            }
+        }
 
         public string RasterTileUrl(int x, int y, int z)
         {
