@@ -170,24 +170,174 @@ namespace TalesTensor.Map
             }
         }
 
-        /// <summary>The fixed offline pin set: two Portal pins at real Skopje landmarks
-        /// (old train station and the old Bristol hotel), so the offline demo shows the
-        /// exact story stops instead of random scatter around the player.</summary>
+        /// <summary>The fixed offline pin set: five Portal pins tracing the "Skopje
+        /// 1944–1962" walk from the Old Railway Station up through Macedonia Square to
+        /// the Stone Bridge. Ordered south → north along the natural walking route and
+        /// chained so each stop unlocks only after the previous one is claimed — a
+        /// player must actually complete them in order. Each stop carries a short
+        /// historical narrative and a precomputed direction/distance to the next stop
+        /// so the card can act as a mini travel guide. All five stops have documented
+        /// period photos and Yugoslav-newsreel footage that the portal video pipeline
+        /// can serve.</summary>
         List<PinDefinition> GenerateOfflinePortals()
         {
-            return new List<PinDefinition>
+            // (id, display name, latitude, longitude, narrative shown on the card, offline
+            // portal video under StreamingAssets — null plays the shared default video).
+            var stops = new (string id, string name, double lat, double lon, string narrative, string video)[]
             {
-                new PinDefinition(
-                    id: "portal_old_train_station",
-                    type: PinType.Portal,
-                    location: new LatLon(41.991106, 21.429048),
-                    energyCost: PortalEnergyCost),
-                new PinDefinition(
-                    id: "portal_old_bristol_hotel",
-                    type: PinType.Portal,
-                    location: new LatLon(41.991910, 21.429444),
-                    energyCost: PortalEnergyCost),
+                (
+                    "portal_old_railway_station", "Old Railway Station",
+                    41.990870, 21.430530,
+                    "Skopje's rail terminus until 5:17 AM on 26 July 1963, when the earthquake stopped the clock and cracked the concourse. Yugoslav newsreels filmed farewells here through the 1950s; today's ruin houses the City Museum.",
+                    "Portals/StaraZeleznicka.mp4"
+                ),
+                (
+                    "portal_ristikj_palace", "Ristikj Palace",
+                    41.995540, 21.431270,
+                    "Built in 1926 by the pharmacist Vladislav Ristikj, this palace is one of the few large pre-war Macedonia Square buildings to ride out the 1963 quake. Its ground-floor shops appear in almost every Skopje street photograph of the 1950s.",
+                    "Portals/Palata.mp4"
+                ),
+                (
+                    "portal_nama_department_store", "NAMA Department Store",
+                    41.995510, 21.431810,
+                    "Opened in 1960 to a design by Slavko Brezoski, NAMA was the modernist debut of post-war Skopje. Its glass front became the square's daily meeting point and a recurring backdrop in newsreel shots of Yugoslav consumer life.",
+                    null
+                ),
+                (
+                    "portal_officers_house", "Officers' House",
+                    41.996470, 21.431910,
+                    "The Yugoslav Army's grand riverfront hall — concerts, receptions and film screenings from 1929 until the 1963 quake demolished it. Tito was filmed here on state visits; the modern replica occupies the same footprint.",
+                    null
+                ),
+                (
+                    "portal_stone_bridge", "Stone Bridge",
+                    41.996290, 21.431540,
+                    "Saved from Wehrmacht demolition in October 1944 when city notables talked the retreating engineers down, this 15th-century Ottoman bridge became the recurring backdrop of every filmed liberation, parade and flood the Vardar saw.",
+                    null
+                ),
             };
+
+            // Mother Teresa Memorial House, Skopje — the standalone AR quest added below.
+            var teresaReal = new LatLon(41.996216, 21.431900);
+
+            // Where each pin actually spawns: its real spot, or the whole layout pulled in
+            // toward the player when it reaches beyond the clamp radius. Next-stop hints use
+            // these same positions so the card's distance/direction matches the map.
+            var real = new LatLon[stops.Length + 1];
+            for (int i = 0; i < stops.Length; i++) real[i] = new LatLon(stops[i].lat, stops[i].lon);
+            real[stops.Length] = teresaReal;
+            var positions = PullTowardPlayer(real);
+
+            var defs = new List<PinDefinition>(stops.Length);
+            for (int i = 0; i < stops.Length; i++)
+            {
+                var s = stops[i];
+                var here = positions[i];
+
+                string nextHint;
+                if (i < stops.Length - 1)
+                {
+                    var n = stops[i + 1];
+                    var there = positions[i + 1];
+                    int metres = Mathf.RoundToInt(MetersBetween(here, there));
+                    string dir = Compass8(BearingDegrees(here, there));
+                    nextHint = $"→ Next: {n.name} · ~{metres} m {dir}";
+                }
+                else
+                {
+                    nextHint = "→ Final stop of the walk.";
+                }
+
+                var def = new PinDefinition(
+                    id: s.id,
+                    type: PinType.Portal,
+                    location: here,
+                    energyCost: PortalEnergyCost)
+                {
+                    displayName = s.name,
+                    chainIndex = i + 1,        // 1-based, so the card reads "Stop 1 of 5"
+                    chainLength = stops.Length,
+                    narrative = s.narrative,
+                    nextHint = nextHint,
+                    offlineVideo = s.video,
+                };
+                // The first stop is always open; every subsequent stop is locked behind
+                // the previous one, so completing the walk is a fixed sequence.
+                if (i > 0)
+                {
+                    def.unlocksAfterId = stops[i - 1].id;
+                    def.unlocksAfterName = stops[i - 1].name;
+                }
+                defs.Add(def);
+            }
+
+            // A standalone AR-chat quest alongside the portal walk: Mother Teresa's scripted
+            // origin-mystery ("The Skopje Calling"), seated at the Memorial House. Not part of
+            // the chained walk, so it's always open.
+            defs.Add(new PinDefinition(
+                id: "quest_skopje_calling",
+                type: PinType.ArChat,
+                location: positions[stops.Length],
+                questName: ScriptedQuestCatalog.SkopjeCalling.questName,
+                energyCost: DefaultEnergyCost)
+            {
+                displayName = "Mother Teresa",
+                narrative = "Before the world knew her as Mother Teresa, Anjeze Gonxhe Bojaxhiu " +
+                            "was born in Skopje in 1910. Meet her by the memorial house that " +
+                            "remembers the girl who once lived in this city.",
+                nextHint = "→ An augmented-reality conversation.",
+            });
+
+            return defs;
+        }
+
+        /// <summary>Shrink a set of fixed-location pins toward the player, uniformly, so the
+        /// farthest sits at <see cref="MapController.pinClampRadiusMeters"/> (a radius of 0,
+        /// or a set already inside it, keeps real positions). Scaling the whole layout rather
+        /// than clamping each pin keeps pins that share a bearing from stacking on the ring,
+        /// and lets the offline walk be played from one spot.</summary>
+        LatLon[] PullTowardPlayer(LatLon[] real)
+        {
+            float radius = _map.pinClampRadiusMeters;
+            LatLon me = _map.CurrentLocation;
+            float farthest = 0f;
+            foreach (var p in real) farthest = Mathf.Max(farthest, MetersBetween(me, p));
+            if (radius <= 0f || farthest <= radius) return real;
+
+            float scale = radius / farthest;
+            var pulled = new LatLon[real.Length];
+            for (int i = 0; i < real.Length; i++)
+            {
+                float bearing = (float)(BearingDegrees(me, real[i]) * System.Math.PI / 180.0);
+                pulled[i] = Offset(me, MetersBetween(me, real[i]) * scale, bearing);
+            }
+            return pulled;
+        }
+
+        /// <summary>Great-circle bearing in degrees (0 = N, 90 = E) from <paramref name="a"/>
+        /// to <paramref name="b"/>, in the range [0, 360). Used to render "Next: X · N/NE/…"
+        /// hints on chained-quest cards.</summary>
+        static double BearingDegrees(LatLon a, LatLon b)
+        {
+            double lat1 = a.Latitude * System.Math.PI / 180.0;
+            double lat2 = b.Latitude * System.Math.PI / 180.0;
+            double dLon = (b.Longitude - a.Longitude) * System.Math.PI / 180.0;
+            double y = System.Math.Sin(dLon) * System.Math.Cos(lat2);
+            double x = System.Math.Cos(lat1) * System.Math.Sin(lat2)
+                     - System.Math.Sin(lat1) * System.Math.Cos(lat2) * System.Math.Cos(dLon);
+            double deg = System.Math.Atan2(y, x) * 180.0 / System.Math.PI;
+            return (deg + 360.0) % 360.0;
+        }
+
+        static readonly string[] CompassPoints =
+            { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+
+        /// <summary>Round a bearing (0-360°) to the nearest of the 8 compass points.</summary>
+        static string Compass8(double bearingDeg)
+        {
+            int idx = ((int)System.Math.Round(bearingDeg / 45.0)) % 8;
+            if (idx < 0) idx += 8;
+            return CompassPoints[idx];
         }
 
         /// <summary>Fetch live portal-ready quest scenes from the Quest Engine and build the
@@ -478,9 +628,12 @@ namespace TalesTensor.Map
         /// <summary>Every pin has been claimed: scatter a fresh batch in the farther
         /// refill band (still within view), persist it, and bounce it in. Centred on the
         /// player's <em>current</em> location, and with no guaranteed in-range pin, so the
-        /// replacements sit further out than the original spread.</summary>
+        /// replacements sit further out than the original spread. Also wipes the
+        /// remembered claim set so any regenerated chain (e.g. the offline Skopje walk)
+        /// starts locked again instead of appearing fully unlocked from the first frame.</summary>
         void Refill()
         {
+            MapPinStore.ClearClaimed();
             _save.pins = QuestEngineConfig.IsConfigured
                 ? Generate(_refillMinMeters, _refillMaxMeters, guaranteeNearPin: false)
                 : GenerateOfflinePortals();
@@ -628,19 +781,45 @@ namespace TalesTensor.Map
 
         /// <summary>A pin was claimed (consumed off the map): forget it so a stale tap
         /// target or open reference can't linger, and drop it from the saved set so it
-        /// never respawns on a later visit or after an app restart.</summary>
+        /// never respawns on a later visit or after an app restart. Also record the
+        /// claim so any pin chained behind this one (see
+        /// <see cref="PinDefinition.unlocksAfterId"/>) unlocks on the next visit — and
+        /// refresh any such pin still on the map right now so its locked look drops
+        /// straight away.</summary>
         void HandleClaimed(MapPin pin)
         {
             if (_openPin == pin) _openPin = null;
             _pins.Remove(pin);
 
             if (_save == null || pin.Definition == null) return;
+
+            // Record the claim first so any refreshed dependent pin sees itself unlocked.
+            MapPinStore.MarkClaimed(pin.Definition.id);
+
             if (_save.pins.RemoveAll(d => d.id == pin.Definition.id) == 0) return;
+
+            RefreshDependents(pin.Definition.id);
 
             // When the last pin is claimed, refill the map with a fresh batch further out;
             // otherwise just persist the smaller set.
             if (_save.pins.Count == 0) Refill();
             else MapPinStore.Save(_save);
+        }
+
+        /// <summary>Respawn any pins whose <see cref="PinDefinition.unlocksAfterId"/>
+        /// matches the just-claimed id, so their card and marker rebuild in the unlocked
+        /// look. A no-op for pins that transition straight into the AR scene (the map
+        /// tears down before they can visually update) — but harmless there too, since
+        /// the same defs are what <see cref="RestoreOrGenerate"/> uses on return.</summary>
+        void RefreshDependents(string claimedId)
+        {
+            foreach (var other in _pins.ToArray())
+            {
+                var def = other.Definition;
+                if (def == null || def.unlocksAfterId != claimedId) continue;
+                Despawn(other, keepDefinition: true);
+                Spawn(def, RefillIntroLead);
+            }
         }
 
         // --- tap routing ---

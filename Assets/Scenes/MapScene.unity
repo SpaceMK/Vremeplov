@@ -510,8 +510,8 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier:
   mode: 0
-  simulatedLatitude: 41.9919145705957
-  simulatedLongitude: 21.4296224286933
+  simulatedLatitude: 41.990689
+  simulatedLongitude: 21.428859
   simulatedSpeed: 12
   desiredAccuracy: 5
   updateDistance: 1

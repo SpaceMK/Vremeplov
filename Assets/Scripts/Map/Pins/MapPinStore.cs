@@ -28,10 +28,14 @@ namespace TalesTensor.Map
     /// running app process, so the set persists across scene loads but is gone on a
     /// fresh boot — points reset every launch and only carry over within the same
     /// session. (Deliberately NOT PlayerPrefs, which would survive app restarts.)
+    /// Also holds the set of pin ids claimed this session so sequential quest chains
+    /// (see <see cref="PinDefinition.unlocksAfterId"/>) can survive the map ↔ AR
+    /// scene transition — the map scene tears down, but the claim record does not.
     /// </summary>
     public static class MapPinStore
     {
         static MapPinSave _save;
+        static readonly HashSet<string> _claimed = new HashSet<string>();
 
         /// <summary>True once a pin set has been generated this session.</summary>
         public static bool Exists() => _save != null;
@@ -44,6 +48,27 @@ namespace TalesTensor.Map
             if (save != null) _save = save;
         }
 
-        public static void Clear() => _save = null;
+        /// <summary>Record that the pin with this id has been claimed this session, so
+        /// any chained pins that depend on it become unlocked.</summary>
+        public static void MarkClaimed(string id)
+        {
+            if (!string.IsNullOrEmpty(id)) _claimed.Add(id);
+        }
+
+        /// <summary>True if the pin with this id has been claimed this session.</summary>
+        public static bool IsClaimed(string id)
+        {
+            return !string.IsNullOrEmpty(id) && _claimed.Contains(id);
+        }
+
+        /// <summary>Drop every remembered claim (so any chained quest that gets
+        /// regenerated starts fresh). Does not touch the pin set itself.</summary>
+        public static void ClearClaimed() => _claimed.Clear();
+
+        public static void Clear()
+        {
+            _save = null;
+            _claimed.Clear();
+        }
     }
 }

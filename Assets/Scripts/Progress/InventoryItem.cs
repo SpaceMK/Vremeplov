@@ -11,7 +11,7 @@ public enum ItemCategory
 }
 
 /// <summary>Which procedural glyph represents an item in the UI (resolved in the view layer).</summary>
-public enum ItemIcon { Booster, Voucher, Scroll }
+public enum ItemIcon { Booster, Voucher, Scroll, Flower }
 
 /// <summary>
 /// Static description of one kind of item. Stacks in the inventory reference these
@@ -53,6 +53,7 @@ public static class ItemCatalog
     public const string KingsScroll = "kings_scroll";
     public const string CupcakeVoucher = "cupcake_voucher";
     public const string IceCreamVoucher = "icecream_voucher";
+    public const string GonxheFlower = "gonxhe_flower";
 
     static readonly Dictionary<string, ItemDefinition> Items = new Dictionary<string, ItemDefinition>
     {
@@ -80,6 +81,12 @@ public static class ItemCatalog
             IceCreamVoucher, "5% Off Premium Ice Cream",
             "A real-world reward. Show this voucher in-store for 5% off premium ice cream.",
             ItemCategory.Premium, usable: false, energyGain: 0, ItemIcon.Voucher),
+
+        [GonxheFlower] = new ItemDefinition(
+            GonxheFlower, "Gonxhe's Flower",
+            "A symbol of the young Gonxhe Bojaxhiu and the beginning of a journey from Skopje " +
+            "to the wider world.",
+            ItemCategory.Regular, usable: false, energyGain: 0, ItemIcon.Flower),
     };
 
     /// <summary>Look up an item definition by id, or null if unknown.</summary>

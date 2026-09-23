@@ -1,6 +1,7 @@
 using BinanceTheme;
 using TalesTensor.Chat;
 using TalesTensor.Map;
+using TalesTensor.Quests;
 using TMPro;
 using Unity.XR.CoreUtils;
 using UnityEngine;
@@ -14,7 +15,9 @@ using UnityEngine.XR.ARSubsystems;
 /// found, drops a 3D model onto it and removes the on-screen prompt. A centered
 /// "Searching for a floor…" message shows while scanning.
 ///
-/// Self-bootstraps when ARScene loads (no scene wiring) and adds an
+/// Normally lives in ARScene so its King prefab can be wired in the inspector
+/// (see <see cref="_kingPrefab"/>); if the scene is ever missing it, it self-bootstraps
+/// at load (falling back to a Resources-loaded King). Either way it adds an
 /// <see cref="ARPlaneManager"/> to the XR Origin at runtime, so the bare AR rig
 /// needs no extra components. The scene's <see cref="ARSession"/> starts disabled;
 /// this enables it only after camera permission is granted, so the camera prompt is
@@ -57,7 +60,9 @@ public class ARFloorPlacer : MonoBehaviour
     static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         if (scene.name != ArSceneName) return;
-        if (FindAnyObjectByType<ARFloorPlacer>() != null) return; // already present
+        if (FindAnyObjectByType<ARFloorPlacer>() != null) return; // normally already in the scene
+        // Fallback for a scene without the placer: spawn a bare one. Its _kingPrefab is unset,
+        // so BuildModel falls back to Resources.Load(KingPrefabResource).
         new GameObject("ARFloorPlacer").AddComponent<ARFloorPlacer>();
     }
 
@@ -70,7 +75,10 @@ public class ARFloorPlacer : MonoBehaviour
         // Pass the accepted quest so the greeting also leads into it. The portal experience
         // has no chat, so skip the preload there.
         ChatIntro.Reset();
-        if (ArSession.Experience == ArExperience.KingChat)
+        // Only the live King chat preloads a backend greeting; a scripted quest speaks fixed
+        // lines locally and the portal experience has no chat, so both skip the preload.
+        if (ArSession.Experience == ArExperience.KingChat &&
+            !ScriptedQuestCatalog.Has(ArSession.QuestName))
             ChatIntro.Preload(this, ArSession.QuestName);
 
         // Quest-name intro: present it centre-screen, hold, then fade out before we ask
@@ -387,54 +395,89 @@ public class ARFloorPlacer : MonoBehaviour
         }
         _model.transform.position = finalPos;
 
-        // He's through — fade the portal out, then open the chat. The King's animator is
-        // handed over so it gestures (Dismiss/Pointing) as it replies.
+        // He's through — fade the portal out, then open the chat. A scripted quest plays its
+        // authored, fixed-text flow; otherwise the live King chat opens, handed the King's
+        // animator so it gestures (Dismiss/Pointing) as it replies.
         portal.FadeOutAndDestroy(PortalLingerSeconds);
-        ChatWindow.Create(_kingAnimator);
+        var scripted = ScriptedQuestCatalog.Get(ArSession.QuestName);
+        if (scripted != null)
+            ScriptedChatWindow.Create(scripted);
+        else
+            ChatWindow.Create(_kingAnimator);
     }
 
-    // The placed character: an animated King loaded from Resources, scaled to roughly
-    // this height and seated on the floor. Falls back to a cube if the asset is missing.
-    const string KingPrefabResource = "CH2_Edinburgh_LOD1"; // Assets/Characters/King/Resources/ (the FBX model)
-    const string KingControllerResource = "EdinburghKingAnim";
-    const string KingModelResource = "CH2_Edinburgh_LOD1";  // same FBX carries the (generic) avatar
+    // The placed character: the ready-built King prefab, scaled to roughly this height and
+    // seated on the floor. The prefab (Tools ▸ Tales Tensor ▸ Build King Prefab) ships with
+    // its Animator already wired — humanoid avatar + the EdinburghKingAnim controller, root
+    // motion off — so there's no per-instance rig setup here beyond a self-repair fallback.
+    [Tooltip("The King character prefab to spawn (model + Animator wired). Built via " +
+             "Tools ▸ Tales Tensor ▸ Build King Prefab. Left unset only on the runtime " +
+             "self-bootstrap path, where it falls back to Resources.Load(\"King\").")]
+    [SerializeField] GameObject _kingPrefab;
+
+    /// <summary>Per-quest character override: the prefab to spawn when the entered quest matches
+    /// <see cref="questName"/>, instead of the default <see cref="_kingPrefab"/>. Lets a quest
+    /// (e.g. "The Skopje Calling") star a different figure (e.g. Mother Teresa).</summary>
+    [System.Serializable]
+    public class CharacterEntry
+    {
+        [Tooltip("Quest name this character is used for (matches the pin's quest / ArSession.QuestName).")]
+        public string questName;
+        [Tooltip("The character prefab to spawn for that quest.")]
+        public GameObject prefab;
+    }
+
+    [Tooltip("Per-quest character overrides. When the entered quest matches an entry, its prefab " +
+             "is spawned instead of the default King prefab.")]
+    [SerializeField] CharacterEntry[] _characters;
+
+    // Fallback prefab name for the self-bootstrap path where _kingPrefab isn't wired.
+    const string KingPrefabResource = "King"; // Assets/Characters/King/Resources/King.prefab
+    const string KingControllerResource = "EdinburghKingAnim"; // only used to repair a prefab that lost its controller
     const float TargetHeightMeters = 1.8f; // a person-sized king (~1.8 m tall)
     // The model's forward may not be Unity's +Z; set to 180 if the King ends up facing
     // away from the player.
     const float FacingYawOffset = 0f;
 
+    /// <summary>The prefab for the entered quest: a per-quest character override if one matches,
+    /// else the inspector-wired King (or the Resources fallback for the bootstrap path).</summary>
+    GameObject SelectPrefab()
+    {
+        string quest = ArSession.QuestName;
+        if (!string.IsNullOrEmpty(quest) && _characters != null)
+            foreach (var c in _characters)
+                if (c != null && c.prefab != null && c.questName == quest) return c.prefab;
+        return _kingPrefab != null ? _kingPrefab : Resources.Load<GameObject>(KingPrefabResource);
+    }
+
     GameObject BuildModel()
     {
-        var prefab = Resources.Load<GameObject>(KingPrefabResource);
+        // Prefer a per-quest character, then the inspector-wired King, then Resources.
+        var prefab = SelectPrefab();
         if (prefab == null)
         {
-            Debug.LogWarning($"[AR] King prefab '{KingPrefabResource}' not found in Resources; using placeholder cube.");
+            Debug.LogWarning($"[AR] No character prefab for quest '{ArSession.QuestName}' and '{KingPrefabResource}' not found in Resources; using placeholder cube.");
             return BuildPlaceholderCube();
         }
 
         var go = Instantiate(prefab);
         go.name = "KingModel";
 
-        // Drive it with the Edinburgh King animator controller (Idle default + gesture
-        // states). The FBX is a Generic (mixamorig) rig that carries its own avatar, so the
-        // instantiated model's Animator usually already has it; pull it off the FBX import as
-        // a fallback if not.
+        // The prefab carries its own Animator (avatar + EdinburghKingAnim controller). Grab
+        // it so the chat can drive its gestures, and only re-wire if the prefab somehow lost
+        // its controller. Materials are converted to URP ahead of time (baked into the
+        // prefab), so nothing to do at runtime here.
         _kingAnimator = go.GetComponentInChildren<Animator>();
         if (_kingAnimator != null)
         {
-            if (_kingAnimator.avatar == null)
+            if (_kingAnimator.runtimeAnimatorController == null)
             {
-                var model = Resources.Load<GameObject>(KingModelResource);
-                var src = model != null ? model.GetComponentInChildren<Animator>() : null;
-                if (src != null && src.avatar != null) _kingAnimator.avatar = src.avatar;
+                var controller = Resources.Load<RuntimeAnimatorController>(KingControllerResource);
+                if (controller != null) _kingAnimator.runtimeAnimatorController = controller;
             }
-            var controller = Resources.Load<RuntimeAnimatorController>(KingControllerResource);
-            if (controller != null) _kingAnimator.runtimeAnimatorController = controller;
             _kingAnimator.applyRootMotion = false;
         }
 
-        // The King's materials are converted to URP ahead of time (Tools ▸ Tales Tensor ▸
-        // Convert King Materials to URP), so nothing to do at runtime here.
         return go;
     }
 
@@ -536,13 +579,35 @@ public class ARFloorPlacer : MonoBehaviour
         _introGroup = introRt.gameObject.AddComponent<CanvasGroup>();
         _introGroup.alpha = 0f;
 
+        // A scripted quest shows its authored title (and a one-line subtitle); otherwise the
+        // quest name (or "Portal" / a generic fallback) is the whole title.
+        var scripted = ScriptedQuestCatalog.Get(ArSession.QuestName);
         string quest = ArSession.Experience == ArExperience.Portal
             ? "Portal"
-            : (string.IsNullOrEmpty(ArSession.QuestName) ? "AR Experience" : ArSession.QuestName);
+            : scripted != null
+                ? scripted.introTitle
+                : (string.IsNullOrEmpty(ArSession.QuestName) ? "AR Experience" : ArSession.QuestName);
         var introLabel = UiFactory.Text("QuestIntroLabel", introRt, quest, 78f,
             BinancePalette.TextPrimary, TextAlignmentOptions.Center);
         introLabel.fontStyle = FontStyles.Bold;
-        UiFactory.Stretch(introLabel.rectTransform, 24f);
+
+        if (scripted != null && !string.IsNullOrEmpty(scripted.introSubtitle))
+        {
+            // Title in the top half, subtitle beneath it.
+            UiFactory.Anchor(introLabel.rectTransform,
+                new Vector2(0f, 0.5f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
+                Vector2.zero, Vector2.zero);
+            var subtitle = UiFactory.Text("QuestIntroSubtitle", introRt, scripted.introSubtitle,
+                34f, BinancePalette.TextSecondary, TextAlignmentOptions.Center);
+            subtitle.enableWordWrapping = true;
+            UiFactory.Anchor(subtitle.rectTransform,
+                new Vector2(0f, 0f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0f),
+                Vector2.zero, new Vector2(-40f, 0f));
+        }
+        else
+        {
+            UiFactory.Stretch(introLabel.rectTransform, 24f);
+        }
     }
 
     // Quest-name intro timing.

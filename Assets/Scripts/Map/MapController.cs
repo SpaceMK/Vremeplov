@@ -84,7 +84,11 @@ namespace TalesTensor.Map
         [Tooltip("How many demo pins to scatter around the first GPS fix.")]
         public int pinCount = 6;
         [Tooltip("How close (real-world metres) the player must be to enter a pin's experience.")]
-        public float interactRangeMeters = 25f;
+        public float interactRangeMeters = 250f;
+        [Tooltip("If any fixed-location pin (the offline Skopje walk) is farther than this from " +
+                 "the player's first fix, the whole layout is shrunk toward the player so the " +
+                 "farthest sits at this radius. 0 = keep real positions.")]
+        public float pinClampRadiusMeters = 200f;
         [Tooltip("Nearest / farthest a generated pin is placed from the player, in metres.")]
         public float pinMinMeters = 40f;
         public float pinMaxMeters = 110f;

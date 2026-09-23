@@ -11,8 +11,9 @@ namespace TalesTensor.Map
     /// One interactive map pin: a billboarded teardrop marker (tinted + glyphed by
     /// <see cref="PinType"/>) with a <see cref="BoxCollider"/> for tapping, plus a
     /// world-space "card" that animates open to the side to describe the experience.
-    /// When the player is within range the card also shows the energy cost + a Spend
-    /// button. Built entirely in code by <see cref="MapPinLayer"/>.
+    /// The card always shows the Spend button; it is live (energy cost) only while the
+    /// player is within range, and otherwise greys out with the distance left to walk.
+    /// Built entirely in code by <see cref="MapPinLayer"/>.
     /// </summary>
     [DisallowMultipleComponent]
     public class MapPin : MonoBehaviour
@@ -25,9 +26,9 @@ namespace TalesTensor.Map
         const float CardWidth = 360f;
         const float BodyRightMargin = 18f;
         const float BodyTopInset = 66f;     // space above the body for the header band
-        const float BodyBottomInset = 64f;  // space below the body when the cost row shows
-        const float CollapsedBottomInset = 18f; // small pad below the body when it's hidden
+        const float BodyBottomInset = 64f;  // space below the body for the cost row
         const float MinBodyHeight = 36f;    // floor so short blurbs still read as a card
+        const float CardGroundClearance = 0.2f; // world units the card's bottom stays above the map
         const float PulseSpeed = 4.5f;       // radians/sec
         const float PulseAmplitude = 0.09f;  // ±9% scale when in range
         const float PulseFade = 0.3f;        // seconds to ease the pulse in/out of range
@@ -38,16 +39,22 @@ namespace TalesTensor.Map
         // Scene entered when an AR Experience pin is accepted; must be in Build Settings.
         const string ArSceneName = "ARScene";
         // Video played inside the AR portal when a Portal pin is entered without a live
-        // Time Portal render. Shipped inside the build via StreamingAssets, so the AR
-        // portal has something to play offline; the path is resolved at runtime because
-        // StreamingAssets URLs differ per platform (jar:file on Android, filesystem
-        // path elsewhere).
-        const string OfflinePortalVideoRelativePath = "Portals/StaraZeleznicka.mp4";
-        static string OfflinePortalVideoUrl =>
-            System.IO.Path.Combine(Application.streamingAssetsPath, OfflinePortalVideoRelativePath)
+        // Time Portal render and has no offlineVideo of its own. Shipped inside the build
+        // via StreamingAssets, so the AR portal has something to play offline; the path
+        // is resolved at runtime because StreamingAssets URLs differ per platform
+        // (jar:file on Android, filesystem path elsewhere).
+        const string DefaultOfflinePortalVideo = "Portals/StaraZeleznicka.mp4";
+        static string StreamingAssetUrl(string relativePath) =>
+            System.IO.Path.Combine(Application.streamingAssetsPath, relativePath)
                 .Replace('\\', '/');
         // A claimed timed event grants, at random, this much energy or an ice-cream voucher.
         const int TimedEnergyReward = 15;
+        // Locked chain-stop look: a muted gray accent replaces the pin's normal tint,
+        // and the marker/glyph fade to this alpha so it reads as inactive at a glance.
+        static readonly Color LockedAccent = new Color(0.55f, 0.57f, 0.62f, 1f);
+        const float LockedMarkerAlpha = 0.6f;
+        // Spend button look while the player is still too far away to enter.
+        static readonly Color OutOfRangeButton = new Color(0.82f, 0.83f, 0.86f, 1f);
 
         MapController _map;
         Camera _cam;
@@ -60,13 +67,16 @@ namespace TalesTensor.Map
         // Card
         RectTransform _card;
         CanvasGroup _cardGroup;
-        GameObject _costRow;
-        RectTransform _bodyRect;
-        float _bodyHeight;     // measured height of the wrapped body text
-        bool _costRowVisible;  // whether the card currently reserves room for the button
+        Image _spendBg;
+        GameObject _costIcon;     // null for free pins
+        TMP_Text _costLabel;
+        TMP_Text _farLabel;       // "Walk closer · N m", shown instead of the cost when out of range
+        bool? _spendShowsInRange; // last applied button state, so it only restyles on change
+        int _farLabelMetres = -1;
 
         bool _open;
         bool _inRange;
+        double _distanceMeters;
         Coroutine _anim;
         // Intro: pins stay hidden (scale 0) then bounce up to full size. Defaults keep
         // them invisible from the first frame until PlayIntro runs.
@@ -92,7 +102,12 @@ namespace TalesTensor.Map
             _map = map;
             _cam = map.mapCamera != null ? map.mapCamera : Camera.main;
             _def = def;
-            _info = PinTypeInfo.For(def.type);
+            // Swap the accent for the locked colour so the marker + header + Spend
+            // button all read as inactive without touching each caller site.
+            var baseInfo = PinTypeInfo.For(def.type);
+            _info = def.IsLocked
+                ? PinTypeInfo.Recolour(baseInfo, LockedAccent)
+                : baseInfo;
             _pinHeight = pinHeight;
             _cardGap = cardGap;
             _interactRangeMeters = interactRangeMeters;
@@ -127,6 +142,19 @@ namespace TalesTensor.Map
                 Color.white, 21, -0.02f);
             glyph.transform.localPosition = new Vector3(0f, 0.645f, -0.02f); // sit in the head
             glyph.transform.localScale = Vector3.one * 0.34f;
+
+            // Locked chain-stop: fade every marker sprite so it reads as inactive on
+            // the map even at a glance. The accent was already swapped to gray above.
+            if (_def.IsLocked)
+            {
+                foreach (var (sr, _) in _markerSprites)
+                    if (sr != null)
+                    {
+                        var c = sr.color;
+                        c.a *= LockedMarkerAlpha;
+                        sr.color = c;
+                    }
+            }
 
             // Tappable box around the head, in marker-local units (sprite is 1 tall).
             var col = markerGo.AddComponent<BoxCollider>();
@@ -165,10 +193,11 @@ namespace TalesTensor.Map
 
             _cardGroup = canvasGo.GetComponent<CanvasGroup>();
 
-            // Pivot on the left edge so it grows out to the side from the pin. Height is
-            // set once the body text is known (see below); start at the width only.
+            // Pivot on the bottom-left corner so it grows out to the side from the pin, and
+            // so LateUpdate can keep that bottom edge above the ground. Height is set once
+            // the body text is known (see below); start at the width only.
             _card.sizeDelta = new Vector2(CardWidth, BodyTopInset + MinBodyHeight + BodyBottomInset);
-            _card.pivot = new Vector2(0f, 0.5f);
+            _card.pivot = new Vector2(0f, 0f);
             _card.localScale = Vector3.one * cardScale;
 
             // Background — white, so the card reads as the pin's white border extending out.
@@ -192,9 +221,21 @@ namespace TalesTensor.Map
             headerLabel.fontStyle = FontStyles.Bold;
 
             // Body text: quest name for AR, quest name + render state for a live portal,
-            // availability window for timed events, otherwise the type blurb.
+            // availability window for timed events, otherwise the type blurb. A locked
+            // chain-stop replaces everything with a "complete X first" line so the
+            // player knows why the Spend button won't work.
             string body;
-            if (_def.type == PinType.ArChat && !string.IsNullOrEmpty(_def.questName))
+            if (_def.IsLocked)
+            {
+                string prereq = string.IsNullOrEmpty(_def.unlocksAfterName)
+                    ? "the previous stop"
+                    : _def.unlocksAfterName;
+                string here = string.IsNullOrEmpty(_def.displayName) ? "This stop" : _def.displayName;
+                body = $"Locked — visit {prereq} first to open {here}.";
+            }
+            else if (!string.IsNullOrEmpty(_def.displayName) && _def.type == PinType.Portal)
+                body = _def.displayName;
+            else if (_def.type == PinType.ArChat && !string.IsNullOrEmpty(_def.questName))
                 body = $"Quest: {_def.questName}";
             else if (_def.type == PinType.Portal && _def.IsLive)
             {
@@ -208,24 +249,40 @@ namespace TalesTensor.Map
                        $"{FormatClock(_def.windowEndMinutes)}\n{_info.Blurb}";
             else
                 body = _info.Blurb;
+
+            // Sequential-chain progress banner: bolded "Stop N of M" prefix so a
+            // player can see where they are in the walk at a glance. TMP rich text is
+            // on by default, so the tags render inline without extra setup.
+            if (_def.IsInChain)
+                body = $"<b>Stop {_def.chainIndex} of {_def.chainLength}</b>\n{body}";
+
+            // Historical narrative sits under the stop title, separated by a blank
+            // line so it reads as a distinct paragraph. Shown on locked cards too —
+            // it doubles as a teaser for what's coming.
+            if (!string.IsNullOrEmpty(_def.narrative))
+                body = $"{body}\n\n{_def.narrative}";
+
+            // "Where to go next" hint, dimmed with TMP rich text. Skipped for locked
+            // stops (the "visit X first" line already tells them where to go back to)
+            // so a locked card doesn't confuse the player with two directions.
+            if (!_def.IsLocked && !string.IsNullOrEmpty(_def.nextHint))
+                body = $"{body}\n\n<color=#4A5560>{_def.nextHint}</color>";
             var bodyLabel = UiFactory.Text("Body", _card, body, 26f,
                 new Color(0.10f, 0.11f, 0.13f, 1f), TextAlignmentOptions.TopLeft);
             bodyLabel.enableWordWrapping = true;
             UiFactory.Anchor(bodyLabel.rectTransform,
                 new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f),
                 Vector2.zero, Vector2.zero);
+            bodyLabel.rectTransform.offsetMin = new Vector2(LeftTextMargin, BodyBottomInset);
             bodyLabel.rectTransform.offsetMax = new Vector2(-BodyRightMargin, -BodyTopInset);
-            _bodyRect = bodyLabel.rectTransform;
 
-            // Size the card height to fit the wrapped body text (width stays fixed), so
-            // the panel hugs its content instead of using a one-size-fits-all box.
+            // Size the card height to fit the wrapped body text (width stays fixed) plus
+            // the button band, so the panel hugs its content.
             float bodyWidth = CardWidth - LeftTextMargin - BodyRightMargin;
-            _bodyHeight = Mathf.Max(bodyLabel.GetPreferredValues(body, bodyWidth, 0f).y, MinBodyHeight);
+            float bodyHeight = Mathf.Max(bodyLabel.GetPreferredValues(body, bodyWidth, 0f).y, MinBodyHeight);
+            _card.sizeDelta = new Vector2(CardWidth, BodyTopInset + bodyHeight + BodyBottomInset);
 
             BuildCostRow();
-            // Start collapsed (no button); SetCostRowVisible expands the card when the
-            // player is in range and the Spend button appears.
-            ApplyCardHeight(showCostRow: false);
 
             _card.gameObject.SetActive(false);
             _card.localScale = new Vector3(0f, cardScale, cardScale);
@@ -242,6 +299,7 @@ namespace TalesTensor.Map
 
             var btn = UiFactory.Panel("SpendButton", row, _info.Accent);
             UiFactory.Stretch(btn.rectTransform);
+            _spendBg = btn;
             var button = btn.gameObject.AddComponent<Button>();
             button.targetGraphic = btn;
             button.onClick.AddListener(OnSpend);
@@ -256,6 +314,7 @@ namespace TalesTensor.Map
                     new Color(0.03f, 0.04f, 0.06f, 1f));
                 UiFactory.Anchor(icon.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(0.5f, 0.5f), new Vector2(-34f, 0f), new Vector2(34f, 34f));
+                _costIcon = icon.gameObject;
             }
 
             var label = UiFactory.Text("CostLabel", btn.transform,
@@ -268,9 +327,44 @@ namespace TalesTensor.Map
             else
                 UiFactory.Anchor(label.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(0f, 0.5f), new Vector2(-6f, 0f), new Vector2(60f, 40f));
+            _costLabel = label;
 
-            _costRow = row.gameObject;
+            // Shown in place of the cost while the player is too far away to enter.
+            _farLabel = UiFactory.Text("FarLabel", btn.transform, "", 26f,
+                new Color(0.25f, 0.27f, 0.31f, 1f), TextAlignmentOptions.Center);
+            UiFactory.Stretch(_farLabel.rectTransform);
+            _farLabel.fontStyle = FontStyles.Bold;
+
+            SetSpendInRange(false);
         }
+
+        /// <summary>Switch the Spend button between its live look (accent + cost) and the
+        /// greyed "walk closer" look, and keep the remaining distance current.</summary>
+        void SetSpendInRange(bool inRange)
+        {
+            if (_spendShowsInRange != inRange)
+            {
+                _spendShowsInRange = inRange;
+                _spendBg.color = inRange ? _info.Accent : OutOfRangeButton;
+                if (_costIcon != null) _costIcon.SetActive(inRange);
+                _costLabel.gameObject.SetActive(inRange);
+                _farLabel.gameObject.SetActive(!inRange);
+            }
+
+            if (!inRange)
+            {
+                int metres = MetresToRange();
+                if (metres != _farLabelMetres)
+                {
+                    _farLabelMetres = metres;
+                    _farLabel.text = $"Walk closer · {metres} m";
+                }
+            }
+        }
+
+        /// <summary>Whole metres the player still has to walk to be within range (min 1).</summary>
+        int MetresToRange() =>
+            Mathf.Max(1, Mathf.CeilToInt((float)(_distanceMeters - _interactRangeMeters)));
 
         // --- per-frame billboarding & proximity ---
 
@@ -287,8 +381,8 @@ namespace TalesTensor.Map
             if (_map.playerMarker != null)
             {
                 float units = Vector3.Distance(_map.playerMarker.position, transform.position);
-                double metres = units * _map.MetersPerUnit;
-                _inRange = metres <= _interactRangeMeters;
+                _distanceMeters = units * _map.MetersPerUnit;
+                _inRange = _distanceMeters <= _interactRangeMeters;
             }
 
             if (_marker != null)
@@ -309,35 +403,21 @@ namespace TalesTensor.Map
 
             if (_open && _card != null)
             {
-                // Anchor the card to the pin head itself (no camera-relative offset) so
-                // it stays attached as the camera orbits/tilts; the card billboards to
-                // face the camera and its left-pivot makes it extend out to the side.
-                _card.position = transform.position + Vector3.up * (_pinHeight + _cardGap);
+                // Centre the card on the pin head so it stays attached as the camera
+                // orbits/tilts; it billboards to face the camera and its left pivot makes
+                // it extend out to the side. A tall card centred there would hang its
+                // bottom (the Spend button) into the ground once the camera tilts, so the
+                // bottom edge is lifted to stay above the map. The card spans pivot +
+                // camera-up * height, and camera-up always points skyward, so clamping
+                // the pivot's height keeps the whole card clear of the ground.
+                float cardHeight = _card.rect.height * _card.lossyScale.y;
+                Vector3 pos = transform.position + Vector3.up * (_pinHeight + _cardGap)
+                              - _cam.transform.up * (cardHeight * 0.5f);
+                pos.y = Mathf.Max(pos.y, transform.position.y + CardGroundClearance);
+                _card.position = pos;
                 _card.rotation = face;
-                SetCostRowVisible(_inRange);
+                SetSpendInRange(_inRange);
             }
-        }
-
-        /// <summary>Show/hide the Spend button, resizing the card so it only reserves
-        /// bottom room for the button while it's actually visible. No-ops if unchanged.</summary>
-        void SetCostRowVisible(bool visible)
-        {
-            if (_costRowVisible == visible) return;
-            ApplyCardHeight(visible);
-        }
-
-        /// <summary>Toggle the cost row and set the card height to fit the body text plus
-        /// the button band (when shown) or just a small pad (when hidden).</summary>
-        void ApplyCardHeight(bool showCostRow)
-        {
-            _costRowVisible = showCostRow;
-            if (_costRow != null) _costRow.SetActive(showCostRow);
-
-            float bottomInset = showCostRow ? BodyBottomInset : CollapsedBottomInset;
-            if (_bodyRect != null)
-                _bodyRect.offsetMin = new Vector2(LeftTextMargin, bottomInset);
-            if (_card != null)
-                _card.sizeDelta = new Vector2(CardWidth, BodyTopInset + _bodyHeight + bottomInset);
         }
 
         // --- intro ---
@@ -384,7 +464,7 @@ namespace TalesTensor.Map
             if (_open) return;
             _open = true;
             _card.gameObject.SetActive(true);
-            SetCostRowVisible(_inRange);
+            SetSpendInRange(_inRange);
             SetMarkerOnTop(true); // lift this pin above its card + all other pins
             StartAnim(1f);
         }
@@ -454,6 +534,22 @@ namespace TalesTensor.Map
         {
             if (_claiming) return; // already being collected
 
+            // The button stays visible out of range (greyed, with the distance left), so
+            // a press there explains the rule instead of entering from across the map.
+            if (!_inRange)
+            {
+                ShowTooFar();
+                return;
+            }
+
+            // Sequential quest chain: a locked stop refuses to spend and points the
+            // player at the prerequisite, so they can't skip ahead.
+            if (_def.IsLocked)
+            {
+                ShowLocked();
+                return;
+            }
+
             int cost = _def.energyCost;
 
             // AR Experience pins drop you into the AR scene rather than awarding an item.
@@ -508,7 +604,9 @@ namespace TalesTensor.Map
                 // demo reconstruction video.
                 string portalVideo = _def.portal != null && _def.portal.HasPlayableVideo
                     ? _def.portal.video.url
-                    : OfflinePortalVideoUrl;
+                    : StreamingAssetUrl(string.IsNullOrEmpty(_def.offlineVideo)
+                        ? DefaultOfflinePortalVideo
+                        : _def.offlineVideo);
                 ArSession.BeginPortal(portalVideo, _def.portal);
                 Claimed?.Invoke(this);
                 SceneTransition.Load(ArSceneName);
@@ -619,6 +717,28 @@ namespace TalesTensor.Map
             if (MapMenu.Instance != null)
                 MapMenu.Instance.ShowMessage("Not enough energy",
                     $"This costs {cost} energy.\nEnergy refills over time — check back soon.");
+        }
+
+        /// <summary>Tell the player to walk up to the pin before entering it.</summary>
+        void ShowTooFar()
+        {
+            if (MapMenu.Instance == null) return;
+            MapMenu.Instance.ShowMessage("Too far away",
+                $"Walk about {MetresToRange()} m closer to enter.\n" +
+                $"Pins open once you're within {Mathf.RoundToInt(_interactRangeMeters)} m.");
+        }
+
+        /// <summary>Explain that this stop is chained behind an unfinished one, and
+        /// which one the player needs to visit next.</summary>
+        void ShowLocked()
+        {
+            if (MapMenu.Instance == null) return;
+            string prereq = string.IsNullOrEmpty(_def.unlocksAfterName)
+                ? "the previous stop"
+                : _def.unlocksAfterName;
+            string here = string.IsNullOrEmpty(_def.displayName) ? "This stop" : _def.displayName;
+            MapMenu.Instance.ShowMessage("Locked",
+                $"Visit {prereq} first to open {here}.");
         }
 
         // --- claim animation ---

@@ -568,6 +568,7 @@ namespace TalesTensor.Map
             ItemIcon.Booster => ProceduralIcons.Lightning(),
             ItemIcon.Voucher => ProceduralIcons.Gem(),
             ItemIcon.Scroll => ProceduralIcons.Scroll(),
+            ItemIcon.Flower => ProceduralIcons.Flower(),
             _ => ProceduralIcons.Gem(),
         };
 

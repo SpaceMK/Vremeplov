@@ -41,6 +41,12 @@ namespace TalesTensor.Map
             Blurb = blurb;
         }
 
+        /// <summary>Copy of <paramref name="source"/> with only the accent colour
+        /// replaced. Used to grey out a locked chain-stop pin without duplicating its
+        /// label / glyph / blurb.</summary>
+        public static PinTypeInfo Recolour(PinTypeInfo source, Color accent) =>
+            new PinTypeInfo(source.Label, accent, source.Glyph, source.Blurb);
+
         public static PinTypeInfo For(PinType type) => type switch
         {
             PinType.ArChat => new PinTypeInfo(

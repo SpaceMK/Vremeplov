@@ -44,6 +44,29 @@ namespace TalesTensor.Map
         /// <summary>A rolled parchment scroll (letter). Centre pivot.</summary>
         public static Sprite Scroll() => Get("scroll", Size, DrawScroll, new Vector2(0.5f, 0.5f));
 
+        /// <summary>A five-petal flower / bud — Gonxhe's Flower. Centre pivot.</summary>
+        public static Sprite Flower() => Get("flower", Size, DrawFlower, new Vector2(0.5f, 0.5f));
+
+        static void DrawFlower(bool[,] mask)
+        {
+            // A round centre ringed by five petals.
+            Inside centre = Disc(0.5f, 0.5f, 0.15f);
+            const float petalR = 0.18f;   // petal radius
+            const float ringR = 0.27f;    // petal centre offset from the middle
+            Fill(mask, (x, y) =>
+            {
+                if (centre(x, y)) return true;
+                for (int i = 0; i < 5; i++)
+                {
+                    float a = Mathf.PI / 2f + i * (Mathf.PI * 2f / 5f); // first petal points up
+                    float px = 0.5f + Mathf.Cos(a) * ringR;
+                    float py = 0.5f + Mathf.Sin(a) * ringR;
+                    if ((x - px) * (x - px) + (y - py) * (y - py) <= petalR * petalR) return true;
+                }
+                return false;
+            });
+        }
+
         static void DrawScroll(bool[,] mask)
         {
             // Parchment body capped by a rolled cylinder at the top and bottom.

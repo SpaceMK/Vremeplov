@@ -17,6 +17,41 @@ namespace TalesTensor.Map
         public LatLon location;
         /// <summary>Only meaningful for <see cref="PinType.ArChat"/>.</summary>
         public string questName;
+        /// <summary>Human-readable stop name shown on the card and in unlock messages
+        /// (e.g. "Stone Bridge"). Optional — falls back to <see cref="questName"/> or
+        /// the type blurb when absent.</summary>
+        public string displayName;
+        /// <summary>If set, this pin is a locked stop in a sequential quest chain: it
+        /// can only be entered once the pin with this id has been claimed. The claim
+        /// set lives on <see cref="MapPinStore"/> and persists across the map ↔ AR
+        /// scene transition for the app session.</summary>
+        public string unlocksAfterId;
+        /// <summary>Display name of the prerequisite stop, so the "Complete X first"
+        /// message and the locked card can name it without a cross-pin lookup.</summary>
+        public string unlocksAfterName;
+        /// <summary>1-based position in a sequential chain (0 if this pin isn't part of
+        /// one). Paired with <see cref="chainLength"/> to render "Stop N of M" on the
+        /// card so the player can see where they are in the walk.</summary>
+        public int chainIndex;
+        /// <summary>Total stops in the chain this pin belongs to (0 if not in one).</summary>
+        public int chainLength;
+
+        /// <summary>True when this pin advertises a "Stop N of M" position.</summary>
+        public bool IsInChain => chainLength > 0 && chainIndex > 0;
+
+        /// <summary>2–3 sentence historical blurb rendered on the card underneath the
+        /// stop name. Optional — cards fall back to the type blurb when absent.</summary>
+        public string narrative;
+
+        /// <summary>Pre-computed "where to go next" line for the card (e.g. "Next: NAMA
+        /// Department Store · ~55 m N" or "Final stop of the walk."). Set at generation
+        /// time so the pin doesn't need to peek at other pins to render its card.</summary>
+        public string nextHint;
+
+        /// <summary>Portal video for this stop when no live Time Portal render is
+        /// available, as a path under StreamingAssets (e.g. "Portals/Palata.mp4").
+        /// Optional — Portal pins without one play the shared default offline video.</summary>
+        public string offlineVideo;
         /// <summary>Availability window as minutes-from-midnight; only meaningful for
         /// <see cref="PinType.TimedEvent"/>. A zero-length window means "no window".</summary>
         public int windowStartMinutes;
@@ -30,6 +65,11 @@ namespace TalesTensor.Map
 
         /// <summary>True when this pin is backed by a live Quest Engine portal.</summary>
         public bool IsLive => portal != null;
+
+        /// <summary>True when this pin is chained behind an as-yet-unclaimed prerequisite.
+        /// A pin with no <see cref="unlocksAfterId"/> is always unlocked.</summary>
+        public bool IsLocked => !string.IsNullOrEmpty(unlocksAfterId)
+                                && !MapPinStore.IsClaimed(unlocksAfterId);
 
         public PinDefinition(string id, PinType type, LatLon location, string questName = null,
             int windowStartMinutes = 0, int windowEndMinutes = 0, int energyCost = 0)
